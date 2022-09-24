@@ -1,0 +1,707 @@
+```{r}
+install.packages("gtrendsR")
+install.packages("tidyverse")
+install.packages("sf")
+install.packages("corrplot")
+install.packages("lubridate")
+install.packages("prophet")
+install.packages("plotly")
+install.packages("Metrics")
+```
+
+## LIBRARY LOADING
+
+```{r}
+library(gtrendsR)
+library(tidyverse)
+library(sf)
+library(plotly)
+library(corrplot)
+library(lubridate)
+library(prophet)
+ library(Metrics)
+```
+
+```{r}
+rm(list = ls())
+?gtrends
+```
+
+
+## KEYWORD HITS SCRAPING
+
+```{r}
+world_data <- gtrends(keyword = c("covid","hotel"), hl = "id-ID")
+IDN_data <- gtrends(keyword = c("covid","hotel"), geo ="ID", hl = "id-ID")
+IDSU_data <- gtrends(keyword = c("covid","hotel"), geo = "ID-SU",hl = "id-ID")
+IDJT_data <- gtrends(keyword = c("covid","hotel"), geo = "ID-JT",hl = "id-ID")
+```
+
+## GENERATING DATA FRAME
+
+## WORLD DATA
+```{r}
+world_timeseries<-as_tibble(world_data$interest_over_time)
+world_country<-as_tibble(world_data$interest_by_country)
+world_queries<-as_tibble(world_data$related_queries)
+world_dma<-as_tibble(world_data$interest_by_dma)
+```
+
+## IDN DATA
+```{r}
+IDN_timeseries<-as_tibble(IDN_data$interest_over_time)
+IDN_region<-as_tibble(IDN_data$interest_by_region)
+IDN_city<-as_tibble(IDN_data$interest_by_city)
+IDN_queries<-as_tibble(IDN_data$related_queries)
+```
+
+## IDSU DATA
+```{r}
+IDSU_timeseries<-as_tibble(IDSU_data$interest_over_time)
+IDSU_city<-as_tibble(IDSU_data$interest_by_city)
+IDSU_queries<-as_tibble(IDSU_data$related_queries)
+```
+
+## IDJT DATA
+```{r}
+IDJT_timeseries<-as_tibble(IDJT_data$interest_over_time)
+IDJT_city<-as_tibble(IDJT_data$interest_by_city)
+IDJT_queries<-as_tibble(IDJT_data$related_queries)
+```
+
+
+
+## HITS VISUALIZATION (WORLD)
+
+```{r}
+world_timeseries %>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1)
+```
+
+```{r}
+unique(world_timeseries$hits)
+```
+
+```{r}
+world_timeseries$hits<-as.numeric(world_timeseries$hits)
+```
+
+```{r}
+world_timeseries %>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1)
+```
+
+```{r}
+world_timeseries %>%
+  filter(date > as.Date("2020-02-16"))%>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1)
+```
+
+
+## DATA VISUALIZATION (INDONESIA)
+
+```{r}
+IDN_timeseries$hits<-as.numeric(IDN_timeseries$hits)
+```
+
+```{r}
+IDN_timeseries %>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1) +  
+  labs(title=" Hits pencarian kata Covid dan Hotel di Indonesia")
+```
+
+```{r, out.width=100%}
+IDN_timeseries %>%
+  filter(date > as.Date("2020-02-16"))%>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1) +
+  labs(title=" Hits pencarian kata Covid dan Hotel di Indonesia periode Maret 2020-sekarang")
+```
+
+
+```{r}
+IDN_region$hits <- as.numeric(IDN_region$hits) 
+```
+
+
+```{r}
+IDN_region %>%
+  ggplot(aes(x=reorder(location,hits),y=hits,fill=keyword)) +
+  geom_col(position = "dodge")+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) + xlab("province") + ylab("hits")
+```
+
+
+```{r}
+IDN_region_covid<-IDN_region%>%
+  dplyr::filter(keyword == "covid") %>%
+  dplyr::rename(covid = hits) %>%
+  dplyr::select(location,covid)
+IDN_region_covid
+```
+
+```{r}
+IDN_region_hotel<-IDN_region%>%
+  dplyr::filter(keyword == "hotel") %>%
+  dplyr::rename(hotel = hits) %>%
+  dplyr::select(location,hotel)
+IDN_region_hotel
+```
+
+
+```{r}
+IDN_region_compile<- IDN_region_covid %>%
+  left_join(IDN_region_hotel,by = "location")
+IDN_region_compile
+```
+
+```{r}
+shp_idn <- sf::read_sf(file.choose())
+shp_idn <- sf::read_sf("D:\\WORK\\DATA ANALYTICS\\GTRENDS PROPHET\\IDN_REG1\\IDN_REG1.shp")
+str(shp_idn)
+```
+
+```{r}
+head(shp_idn)
+```
+
+
+```{r}
+shp_idn$nmprov<-tolower(shp_idn$nmprov)
+shp_idn$nmprov
+```
+
+
+```{r}
+IDN_region_compile$location<-tolower(IDN_region_compile$location)
+unique(IDN_region_compile$location)
+```
+
+```{r}
+IDN_region_compile$location[IDN_region_compile$location == "daerah khusus ibukota jakarta"] <- "dki jakarta"
+IDN_region_compile$location[IDN_region_compile$location== "daerah istimewa yogyakarta"] <- "di yogyakarta"
+
+```
+
+```{r}
+shp_idn <- shp_idn %>%
+  left_join(y=IDN_region_compile,by = c("nmprov" = "location"),keep=T) 
+```
+
+```{r}
+shp_idn
+```
+
+
+```{r}
+plot_ly(shp_idn, color = ~covid, split = ~nmprov, 
+        text = ~paste("<b>", nmprov, "</b><br>",
+                      "<b>Hits covid</b>:", covid,"<br>",
+                      "<b>Hits hotel</b>:", hotel,"<br>"),
+        hoveron = "fills", hoverinfo = "text", showlegend = FALSE) %>% 
+  colorbar(title = "Hits covid")
+```
+
+
+```{r}
+#covid_mean = mean(shp_idn$covid)
+#hotel_mean = mean(shp_idn$hotel)
+covid_mean = 50
+hotel_mean = 50
+shp_idn %>%
+  ggplot(aes(y=covid,x=hotel, label = kdprov)) + 
+  geom_point(col=2, size=2, na.rm = TRUE) +
+  geom_hline(yintercept= covid_mean, linetype="dashed", color = "red") +
+  geom_vline(xintercept= hotel_mean, linetype="dashed", color = "red") +
+  geom_text(hjust=0.5, vjust=0) +
+  theme(text = element_text(size = 8)) 
+```
+
+```{r}
+IDN_region_corr <- cor(IDN_region_compile[,c(2,3)])
+corrplot(IDN_region_corr, method = "number",type = "upper")
+?corrplot
+```
+
+
+```{r}
+IDN_queries %>%
+  filter(related_queries=="top" & keyword =="covid") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  labs(title="Query yang berhubungan dengan 'covid' di Indonesia") + ylab("hits") + xlab("query") + coord_flip()
+```
+
+```{r}
+IDN_queries %>%
+  filter(related_queries=="top" & keyword =="hotel") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  coord_flip() + labs(title="Query yang berhubungan dengan 'hotel' di Indonesia ") + ylab("hits") + xlab("query")
+```
+
+## GTREND FORECAST
+
+```{r}
+IDN_timeseries_covid <- IDN_timeseries %>%
+  dplyr::filter(keyword == "covid" & date > as.Date("2020-02-16")) %>%
+  dplyr::select(date,hits)%>%
+  dplyr::rename(y = hits, ds = date)
+IDN_timeseries_covid
+```
+
+```{r}
+IDN_timeseries_hotel <- IDN_timeseries %>%
+  dplyr::filter(keyword == "hotel" & date > as.Date("2020-02-16")) %>%
+  dplyr::select(date,hits)%>%
+  dplyr::rename(y = hits, ds = date)
+IDN_timeseries_hotel
+```
+
+```{r}
+
+IDN_covid_m <- prophet::prophet(IDN_timeseries_covid)
+IDN_covid_present_future <- prophet::make_future_dataframe(IDN_covid_m, periods=12, freq = "week")
+IDN_covid_predict_data <-as_tibble(predict(IDN_covid_m,IDN_covid_present_future))
+IDN_covid_predict_data
+
+```
+
+```{r}
+dyplot.prophet(IDN_covid_m, IDN_covid_predict_data)
+```
+
+
+```{r}
+IDN_covid_forecast <- IDN_covid_predict_data %>%
+  dplyr::mutate(ds = ymd(ds),
+                category = case_when(ds>Sys.Date()-8 ~ "forecast",
+                                     TRUE ~ "actual"),
+                keyword = paste0("covid")) %>%
+  select(ds, category, yhat, yhat_lower, yhat_upper, keyword) %>%
+  left_join(IDN_timeseries_covid)
+IDN_covid_forecast
+```
+
+```{r}
+IDN_covid_forecast %>%
+  ggplot() +
+  geom_line(aes(ds,y))+
+  geom_point(data = subset(IDN_covid_forecast,category == "forecast"),
+             aes(ds,yhat),color="salmon",size=0.1) +
+  geom_ribbon(data=subset(IDN_covid_forecast,category=="forecast"),
+              aes(ds,ymin=yhat_lower,ymax=yhat_upper),fill="salmon", alpha=0.3)
+```
+
+```{r}
+prophet::prophet_plot_components(IDN_covid_m,IDN_covid_predict_data)
+```
+
+```{r}
+IDN_covid_forecast_1 <- IDN_covid_forecast %>%
+  dplyr::filter(ds < as.Date("2022-04-17"))
+rmse(IDN_covid_forecast_1$y, IDN_covid_forecast_1$yhat)
+```
+
+
+```{r}
+IDN_hotel_m <- prophet::prophet(IDN_timeseries_hotel)
+IDN_hotel_present_future <- prophet::make_future_dataframe(IDN_hotel_m, periods=12, freq = "week")
+IDN_hotel_predict_data <-as_tibble(predict(IDN_hotel_m,IDN_hotel_present_future))
+IDN_hotel_predict_data
+```
+
+```{r}
+dyplot.prophet(IDN_hotel_m, IDN_hotel_predict_data)
+```
+
+
+```{r}
+IDN_hotel_forecast <- IDN_hotel_predict_data %>%
+  dplyr::mutate(ds = ymd(ds),
+                category = case_when(ds>Sys.Date()-8 ~ "forecast",
+                                     TRUE ~ "actual"),
+                keyword = paste0("hotel")) %>%
+  select(ds, category, yhat, yhat_lower, yhat_upper, keyword) %>%
+  left_join(IDN_timeseries_hotel)
+IDN_hotel_forecast
+```
+
+```{r}
+IDN_hotel_forecast %>%
+  ggplot() +
+  geom_line(aes(ds,y))+
+  geom_point(data = subset(IDN_covid_forecast,category == "forecast"),
+             aes(ds,yhat),color="salmon",size=0.1) +
+  geom_ribbon(data=subset(IDN_covid_forecast,category=="forecast"),
+              aes(ds,ymin=yhat_lower,ymax=yhat_upper),fill="salmon", alpha=0.3)
+```
+
+```{r}
+prophet::prophet_plot_components(IDN_hotel_m,IDN_hotel_predict_data)
+```
+
+```{r}
+IDN_forecast <- rbind(IDN_covid_forecast,IDN_hotel_forecast) %>%
+  rename(date = ds, actual=y)
+```
+
+```{r}
+IDN_forecast %>%
+  ggplot() +
+  geom_line(aes(date,actual, color=keyword), size= 1)+
+  geom_point(data = subset(IDN_forecast,category == "forecast"),
+             aes(date,yhat, color=keyword),size=0.05) +
+  geom_ribbon(data=subset(IDN_forecast,category=="forecast"),
+              aes(date,ymin=yhat_lower,ymax=yhat_upper, fill=keyword), alpha=0.3) +
+  scale_y_continuous(limits = c(0,100)) +
+  labs(y="hits", title = "Pencarian kata covid v.s hotel")
+```
+# PROPHET WITH REGRESSOR
+
+```{r}
+IDN_timeseries_hotel<-IDN_timeseries_hotel%>%
+  dplyr::rename(hotel = y)
+IDN_timeseries_hotel
+```
+
+```{r}
+IDN_timeseries_covid_reg <- IDN_timeseries_covid%>%
+  left_join(IDN_timeseries_hotel, by="ds") %>%
+  dplyr::filter(ds < as.Date("2022-06-26"))
+```
+
+
+```{r}
+IDN_timeseries_covid_reg
+```
+
+
+```{r}
+m_reg <- prophet()
+m_reg <- add_regressor(m_reg,'hotel') 
+m_reg <- fit.prophet(m_reg,IDN_timeseries_covid_reg)
+```
+
+
+
+```{r}
+m_future <- prophet::make_future_dataframe(m_reg, periods=11, freq = "week")
+m_future$hotel <- IDN_timeseries_hotel$hotel
+m_predict<- as_tibble(predict(m_reg,m_future))
+```
+
+```{r}
+m_future
+```
+
+```{r}
+m_predict
+```
+
+```{r}
+dyplot.prophet(m_reg, m_predict)
+```
+
+
+```{r}
+prophet::prophet_plot_components(m_reg,m_predict)
+```
+
+```{r}
+IDN_forecast <- m_predict %>%
+  dplyr::mutate(ds = ymd(ds)) %>%
+  select(ds, yhat) %>%
+  left_join(IDN_timeseries_covid)
+
+rmse(IDN_forecast$y,IDN_forecast$yhat)
+?rmse
+```
+
+
+
+## DATA VISUALIZATION (SUMATERA UTARA)
+
+```{r}
+IDSU_timeseries$hits<-as.numeric(IDSU_timeseries$hits)
+```
+
+```{r}
+IDSU_timeseries %>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1) +  
+  labs(title=" Hits pencarian kata Covid dan Hotel di Sumatera Utara")
+```
+
+```{r, out.width=100%}
+IDSU_timeseries %>%
+  filter(date > as.Date("2020-03-01"))%>%
+  ggplot(aes(x= date, y = hits, color=keyword)) +
+  geom_line(size=1) +
+  labs(title=" Hits pencarian kata Covid dan Hotel di Sumatera Utara periode Maret 2020-sekarang")
+```
+
+
+```{r}
+IDSU_city$hits <- as.numeric(IDSU_city$hits) 
+```
+
+
+```{r}
+IDSU_city %>%
+  ggplot(aes(x=reorder(location,hits),y=hits,fill=keyword)) +
+  geom_col(position = "dodge")+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) + xlab("city") + ylab("hits")
+```
+
+```{r}
+IDSU_city_covid<-IDSU_city%>%
+  dplyr::filter(keyword == "covid") %>%
+  dplyr::rename(covid = hits) %>%
+  dplyr::select(location,covid)
+IDSU_city_covid
+```
+
+```{r}
+IDSU_city_hotel<-IDSU_city%>%
+  dplyr::filter(keyword == "hotel") %>%
+  dplyr::rename(hotel = hits) %>%
+  dplyr::select(location,hotel)
+IDSU_city_hotel
+```
+
+
+```{r}
+IDSU_city_compile<- IDSU_city_covid %>%
+  left_join(IDSU_city_hotel,by = "location")
+IDSU_city_compile
+```
+
+```{r}
+shp_idn_reg2 <- sf::read_sf("D:\\WORK\\MATERIALS\\Data Science\\GTRENDS WITH R\\IDN_REG2\\IDN_REG2.shp")
+str(shp_idn_reg2)
+```
+
+```{r}
+head(shp_idn_reg2)
+```
+```{r}
+shp_IDSU <- shp_idn_reg2 %>%
+  filter(nmprov=="SUMATERA UTARA")
+```
+
+```{r}
+plot_ly(shp_IDSU)
+```
+
+
+
+
+```{r}
+shp_IDSU$nmkab<-tolower(shp_IDSU$nmkab)
+shp_IDSU$nmkab
+```
+
+
+```{r}
+IDSU_city_compile$location<-tolower(IDSU_city_compile$location)
+unique(IDSU_city_compile$location)
+```
+
+
+```{r}
+shp_IDSU <- shp_IDSU %>%
+  left_join(y=IDSU_city_compile,by = c("nmkab" = "location"),keep=T) 
+```
+
+```{r}
+shp_IDSU
+```
+
+
+```{r}
+plot_ly(shp_IDSU, color = ~covid, split = ~nmkab, span = I(1), 
+        text = ~paste("<b>", nmkab, "</b><br>",
+                      "<b>Hits covid</b>:", covid,"<br>",
+                      "<b>Hits hotel</b>:", hotel,"<br>"),
+        hoveron = "fills", hoverinfo = "text", showlegend = FALSE) %>% 
+  colorbar(title = "Hits covid")
+```
+
+
+```{r}
+
+covid_mean_SU = mean(shp_IDSU$covid, na.rm = TRUE)
+hotel_mean_SU = mean(shp_IDSU$hotel, na.rm = TRUE)
+
+shp_IDSU %>%
+  ggplot(aes(y=covid,x=hotel, label = idkab)) + 
+  geom_point(col=2, size=2, na.rm = TRUE) +
+  geom_hline(yintercept= covid_mean_SU, linetype="dashed", color = "red") +
+  geom_vline(xintercept= hotel_mean_SU, linetype="dashed", color = "red") +
+  geom_text(hjust=0.5, vjust=0) +
+  theme(text = element_text(size = 8)) 
+```
+
+```{r}
+IDSU_city_corr <- cor(IDSU_city_compile[,c(2,3)])
+corrplot(IDSU_city_corr, method = "number",type = "upper")
+?corrplot
+```
+
+
+```{r}
+IDSU_queries %>%
+  filter(related_queries=="top" & keyword =="covid") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  coord_flip() + labs(title="Query yang berhubungan dengan 'covid' di Sumatera Utara") + ylab("hits") + xlab("query")
+```
+
+```{r}
+IDSU_queries %>%
+  filter(related_queries=="top" & keyword =="hotel") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  coord_flip() + labs(title="Query yang berhubungan dengan 'hotel' di Sumatera Utara ") + ylab("hits") + xlab("query")
+```
+## VISUALIZATION (JAWA TENGAH)
+
+```{r}
+IDJT_city$hits <- as.numeric(IDJT_city$hits) 
+```
+
+
+```{r}
+IDJT_city %>%
+  ggplot(aes(x=reorder(location,hits),y=hits,fill=keyword)) +
+  geom_col(position = "dodge")+
+  theme(axis.text.x = element_text(angle = 90, vjust =0.5, hjust=1)) + xlab("city") + ylab("hits")
+```
+
+```{r}
+IDJT_city_covid<-IDJT_city%>%
+  dplyr::filter(keyword == "covid") %>%
+  dplyr::rename(covid = hits) %>%
+  dplyr::select(location,covid)
+IDJT_city_covid
+```
+
+```{r}
+IDJT_city_hotel<-IDJT_city%>%
+  dplyr::filter(keyword == "hotel") %>%
+  dplyr::rename(hotel = hits) %>%
+  dplyr::select(location,hotel)
+IDJT_city_hotel
+```
+
+
+```{r}
+IDJT_city_compile<- IDJT_city_covid %>%
+  left_join(IDJT_city_hotel,by = "location")
+IDJT_city_compile
+```
+
+
+```{r}
+shp_IDJT <- shp_idn_reg2 %>%
+  filter(nmprov=="JAWA TENGAH")
+```
+
+```{r}
+plot_ly(shp_IDJT)
+```
+
+
+
+
+```{r}
+shp_IDJT$nmkab<-tolower(shp_IDJT$nmkab)
+shp_IDJT$nmkab
+```
+
+
+```{r}
+IDJT_city_compile$location<-tolower(IDJT_city_compile$location)
+unique(IDJT_city_compile$location)
+```
+
+
+```{r}
+shp_IDJT <- shp_IDJT %>%
+  left_join(y=IDJT_city_compile,by = c("nmkab" = "location"),keep=T) 
+```
+
+```{r}
+shp_IDSU
+```
+
+
+```{r}
+plot_ly(shp_IDJT, color = ~covid, split = ~nmkab, span = I(1), 
+        text = ~paste("<b>", nmkab, "</b><br>",
+                      "<b>Hits covid</b>:", covid,"<br>",
+                      "<b>Hits hotel</b>:", hotel,"<br>"),
+        hoveron = "fills", hoverinfo = "text", showlegend = FALSE) %>% 
+  colorbar(title = "Hits covid")
+```
+
+
+```{r}
+
+covid_mean_JT = mean(shp_IDJT$covid, na.rm = TRUE)
+hotel_mean_JT = mean(shp_IDJT$hotel, na.rm = TRUE)
+
+shp_IDJT %>%
+  ggplot(aes(y=covid,x=hotel, label = idkab)) + 
+  geom_point(col=2, size=2, na.rm = TRUE) +
+  geom_hline(yintercept= covid_mean_JT, linetype="dashed", color = "red") +
+  geom_vline(xintercept= hotel_mean_JT, linetype="dashed", color = "red") +
+  geom_text(hjust=0.5, vjust=0) +
+  theme(text = element_text(size = 8)) 
+```
+
+```{r}
+IDJT_city_corr <- cor(IDJT_city_compile[,c(2,3)], use="complete.obs")
+corrplot(IDJT_city_corr, method = "number",type = "upper")
+?corrplot
+```
+
+
+```{r}
+IDJT_queries %>%
+  filter(related_queries=="top" & keyword =="covid") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  coord_flip() + labs(title="Query yang berhubungan dengan 'covid' di Jawa Tengah") + ylab("hits") + xlab("query")
+```
+
+```{r}
+IDJT_queries %>%
+  filter(related_queries=="top" & keyword =="hotel") %>%
+  mutate(subject=as.numeric(subject)) %>%
+  top_n(10,subject) %>%
+  arrange(desc(subject)) %>%
+  ggplot(aes(x=reorder(value,-subject),y=subject,fill="red")) +
+  geom_bar(stat='identity',show.legend = F) +
+  coord_flip() + labs(title="Query yang berhubungan dengan 'hotel' di Jawa Tengah") + ylab("hits") + xlab("query")
+```
